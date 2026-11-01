@@ -159,7 +159,7 @@
         <div class="modal-head">
           <div class="badge-row">
             <span class="multi-badge">CROSS-DEVICE DUAL</span>
-            <span class="online-indicator"></span>
+            <span id="wsStatusPill" class="conn-pill online">🟢 Server Ready</span>
           </div>
           <button id="btnCloseMultiplayer" class="close-btn">&times;</button>
         </div>
@@ -172,21 +172,24 @@
 
           <!-- Host View -->
           <div id="hostSection" class="multi-section">
-            <p class="section-desc">Create a room and share the link with another laptop or phone on your Wi-Fi!</p>
-            
-            <div class="room-action-row">
-              <button id="btnCreateRoom" class="primary-btn glow-btn">GENERATE DUEL LINK</button>
-            </div>
+            <p class="section-desc">Share this link with another laptop on your Wi-Fi, or test it now in a split window:</p>
 
-            <div id="roomShareInfo" class="room-share-info hidden">
+            <div id="roomShareInfo" class="room-share-info">
               <div class="room-code-display">
-                <span class="label">ROOM CODE</span>
-                <span id="displayRoomCode" class="big-code">SAMURAI</span>
+                <div>
+                  <span class="label">ROOM CODE</span>
+                  <div id="displayRoomCode" class="big-code">GEN-1</div>
+                </div>
+                <button id="btnCreateRoom" class="secondary-btn" style="width: auto; padding: 6px 12px;" title="Generate a fresh code">🔄 NEW CODE</button>
               </div>
 
               <div class="copy-link-box">
-                <input type="text" id="shareUrlInput" class="copy-input" readonly>
+                <input type="text" id="shareUrlInput" class="copy-input" readonly placeholder="Generating duel link...">
                 <button id="btnCopyLink" class="copy-btn">📋 COPY LINK</button>
+              </div>
+
+              <div class="room-actions-bar">
+                <a id="btnTestNewWindow" href="#" target="_blank" class="secondary-btn">🚀 OPEN GUEST IN NEW TAB (TEST NOW)</a>
               </div>
 
               <div class="host-player-status">
@@ -204,6 +207,13 @@
                 </label>
               </div>
 
+              <div class="device-tips-card">
+                <b>💡 How to Connect 2nd Laptop:</b><br>
+                1. Make sure both laptops are on the same Wi-Fi / Hotspot.<br>
+                2. On the 2nd laptop, open Chrome and paste the link above.<br>
+                3. Or open <code>http://172.17.102.226:3000</code> and enter the Room Code!
+              </div>
+
               <button id="btnStartOnlineMatch" class="primary-btn glow-btn disabled" disabled>START DUEL</button>
             </div>
           </div>
@@ -212,7 +222,7 @@
           <div id="joinSection" class="multi-section hidden">
             <p class="section-desc">Enter the Room Code or paste the Invite Link from your friend's laptop:</p>
             <div class="join-input-group">
-              <input type="text" id="joinRoomCodeInput" class="form-input" placeholder="e.g. SAMURAI" maxlength="16">
+              <input type="text" id="joinRoomCodeInput" class="form-input" placeholder="e.g. 9HM4E" maxlength="16">
               <button id="btnJoinRoomSubmit" class="primary-btn">JOIN DUEL</button>
             </div>
             <div id="joinStatusText" class="status-message"></div>

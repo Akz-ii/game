@@ -282,8 +282,8 @@ export class HoopGame {
         heldBall.x = p.pos.x;
         heldBall.y = p.pos.y - 10;
 
-        // Wave throw trigger: fast upward or forward flick
-        if (p.spd > 580) {
+        // Wave throw trigger: responsive flick or directional swipe
+        if (p.spd > 260) {
           const vx = (p.dir ? p.dir.x : 0.8) * p.spd * 0.95;
           const vy = (p.dir && p.dir.y < 0 ? p.dir.y : -0.7) * p.spd * 0.95 - 200;
           heldBall.state = 'flying';
@@ -291,7 +291,7 @@ export class HoopGame {
           heldBall.vx = Math.max(-1200, Math.min(1200, vx));
           heldBall.vy = Math.max(-1400, Math.min(-300, vy));
           heldBall.spin = (Math.random() - 0.5) * 8;
-          this.arena.sound.playWhoosh();
+          (this.arena.sounds || this.arena.sound)?.playWhoosh();
 
           if (this.arena.playMode === 'online') {
             this.arena.multiplayer.throwBasketball({
@@ -310,13 +310,13 @@ export class HoopGame {
           if (this.arena.playMode === 'local' && ball.owner !== 'shared' && ball.owner !== p.role) continue;
 
           const dist = Math.hypot(p.pos.x - ball.x, p.pos.y - ball.y);
-          if (dist < 80) {
-            ball.pickupProgress += dt * 3.0; // Fills in ~0.33s
+          if (dist < 90) {
+            ball.pickupProgress += dt * 4.0; // Responsive ~0.25s pickup
             if (ball.pickupProgress >= 1.0) {
               ball.state = 'held';
               ball.holder = p.role;
               ball.pickupProgress = 0;
-              this.arena.sound.playTargetHit();
+              (this.arena.sounds || this.arena.sound)?.playTargetHit();
             }
           } else {
             ball.pickupProgress = Math.max(0, ball.pickupProgress - dt * 2.0);
@@ -329,7 +329,7 @@ export class HoopGame {
     for (const b of this.balls) {
       const res = b.update(dt, this.floorY, this.hoops);
       if (res && res.scored) {
-        this.arena.sound.playSwish();
+        (this.arena.sounds || this.arena.sound)?.playSwish();
         const scorer = (b.holder || (this.arena.playMode === 'local' ? (b.x < window.innerWidth / 2 ? 'p1' : 'p2') : 'p1'));
         this.scores[scorer] += res.points;
         this.arena.scores[scorer] = this.scores[scorer];
@@ -589,10 +589,10 @@ export class CowGame {
         if (st.lastHandY !== null) {
           const dy = p.pos.y - st.lastHandY;
           // Downward motion triggers milk stream!
-          if (dy > 4 && dy < 65) {
-            const added = dy * 0.085;
+          if (dy > 2 && dy < 100) {
+            const added = dy * 0.12;
             st.fill = Math.min(100, st.fill + added);
-            this.arena.sound.playMilkSquirt();
+            (this.arena.sounds || this.arena.sound)?.playMilkSquirt();
 
             // Spawn 3 milk streams down to the bucket
             for (let k = 0; k < 3; k++) {
@@ -612,7 +612,7 @@ export class CowGame {
             if (st.fill >= 100 && !st.done) {
               st.done = true;
               st.time = now;
-              this.arena.sound.playPoseSuccess();
+              (this.arena.sounds || this.arena.sound)?.playPoseSuccess();
               this.arena.scores[st.role] += 1;
               this.arena.updateScoreboardUI();
 
@@ -882,13 +882,13 @@ export class PainterGame {
       if (this.coverageP1 >= this.winTarget) {
         this.arena.scores.p1 += 1;
         this.arena.state = 'CLEAR';
-        this.arena.sound.playPoseSuccess();
-        this.arena.showResults();
+        (this.arena.sounds || this.arena.sound)?.playPoseSuccess();
+        if (typeof this.arena.showResults === 'function') this.arena.showResults('WALL 95% COVERED!', 'Player 1 Wins!');
       } else if (isLocalDual && this.coverageP2 >= this.winTarget) {
         this.arena.scores.p2 += 1;
         this.arena.state = 'CLEAR';
-        this.arena.sound.playPoseSuccess();
-        this.arena.showResults();
+        (this.arena.sounds || this.arena.sound)?.playPoseSuccess();
+        if (typeof this.arena.showResults === 'function') this.arena.showResults('WALL 95% COVERED!', 'Player 2 Wins!');
       }
     }
   }
@@ -1082,15 +1082,15 @@ export class CatchGame {
           f.caught = true;
 
           if (f.kind === 'bomb') {
-            this.arena.sound.playThud();
+            (this.arena.sounds || this.arena.sound)?.playThud();
             this.arena.scores[role] = Math.max(0, this.arena.scores[role] - 3);
             this.floaters.push({ x: f.x, y: f.y - 20, text: 'BOMB! -3', color: '#ff3366', t: now });
           } else if (f.kind === 'star') {
-            this.arena.sound.playCatch();
+            (this.arena.sounds || this.arena.sound)?.playCatch();
             this.arena.scores[role] += 3;
             this.floaters.push({ x: f.x, y: f.y - 20, text: '+3 STAR!', color: '#ffd028', t: now });
           } else {
-            this.arena.sound.playCatch();
+            (this.arena.sounds || this.arena.sound)?.playCatch();
             this.arena.scores[role] += 1;
             this.floaters.push({ x: f.x, y: f.y - 20, text: '+1 JUICY!', color: '#10f084', t: now });
           }
@@ -1476,10 +1476,10 @@ export class PoseGame {
         this.scoreP1 = avgP1;
 
         if (this.scoreP1 >= 70) {
-          this.arena.sound.playPoseSuccess();
+          (this.arena.sounds || this.arena.sound)?.playPoseSuccess();
           this.arena.scores.p1 += 1;
         } else {
-          this.arena.sound.playThud();
+          (this.arena.sounds || this.arena.sound)?.playThud();
         }
         this.arena.updateScoreboardUI();
       }

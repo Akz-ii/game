@@ -14,13 +14,13 @@ import { HoopGame, CowGame, PainterGame, CatchGame, PoseGame } from './arcade_ga
 const CONFIG = {
   windowW: window.innerWidth,
   windowH: window.innerHeight,
-  minSliceSpeed: 260.0,       // Light, effortless responsive cuts
-  minSliceDist: 42.0,         // Crisp snap distance
-  sliceWindow: 0.32,          // Slicing stroke window
-  maxWobble: 1.95,            // Generous path wobble to support natural curved swings
-  earlyStrictness: 1.40,
+  minSliceSpeed: 140.0,       // Effortless, natural swift cuts
+  minSliceDist: 26.0,         // Crisp snap distance
+  sliceWindow: 0.35,          // Generous slicing stroke window
+  maxWobble: 2.2,             // Generous path wobble to support natural curved swings
+  earlyStrictness: 1.15,
   fruitRadius: 110,
-  hitboxMultiplier: 1.50,     // Generous 1.5x hitbox for satisfying, 100% reliable slicing
+  hitboxMultiplier: 1.65,     // 1.65x generous hitbox for 100% reliable, satisfying slices
   gravity: 1800,
   dualFruitMode: 'split',     // 'split' (Left P1 vs Right P2) or 'center' (Shared single fruit)
 };
@@ -1369,48 +1369,107 @@ class MultiplayerClient {
     this.role = null;
     this.roomId = null;
     this.connected = false;
+    this.serverLanIp = '172.17.102.226';
+    this.pendingCreate = null;
+    this.reconnectTimer = null;
   }
 
   connect() {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}`;
-    this.ws = new WebSocket(wsUrl);
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
 
-    this.ws.onopen = () => {
-      this.connected = true;
-      this.onEvent({ type: 'connected' });
+    let wsUrl;
+    if (window.location.protocol === 'file:') {
+      wsUrl = 'ws://localhost:3000';
+    } else {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const host = window.location.host || 'localhost:3000';
+      wsUrl = `${protocol}//${host}`;
+    }
 
-      const params = new URLSearchParams(window.location.search);
-      const roomParam = params.get('room');
-      if (roomParam) {
-        this.joinRoom(roomParam);
-      }
-    };
+    try {
+      this.ws = new WebSocket(wsUrl);
 
-    this.ws.onmessage = (e) => {
-      try {
-        const msg = JSON.parse(e.data);
-        this.onEvent(msg);
-      } catch (err) {
-        console.error('WS parse error:', err);
-      }
-    };
+      this.ws.onopen = () => {
+        this.connected = true;
+        this.onEvent({ type: 'connected' });
 
-    this.ws.onclose = () => {
-      this.connected = false;
-      this.onEvent({ type: 'disconnected' });
-    };
+        if (this.pendingCreate) {
+          this.ws.send(JSON.stringify({
+            type: 'create-room',
+            roomId: this.pendingCreate.roomId,
+            game: this.pendingCreate.game,
+            targetWins: this.pendingCreate.targetWins
+          }));
+          this.pendingCreate = null;
+        }
+
+        const params = new URLSearchParams(window.location.search);
+        const roomParam = params.get('room');
+        if (roomParam) {
+          this.joinRoom(roomParam);
+        }
+      };
+
+      this.ws.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data);
+          if (msg.localIp) this.serverLanIp = msg.localIp;
+          this.onEvent(msg);
+        } catch (err) {
+          console.error('WS parse error:', err);
+        }
+      };
+
+      this.ws.onclose = () => {
+        this.connected = false;
+        this.onEvent({ type: 'disconnected' });
+        this.reconnectTimer = setTimeout(() => {
+          this.connect();
+        }, 2000);
+      };
+
+      this.ws.onerror = (err) => {
+        this.onEvent({ type: 'error', message: 'WebSocket connection failed' });
+      };
+    } catch (e) {
+      console.warn('WS setup error:', e);
+      this.reconnectTimer = setTimeout(() => this.connect(), 3000);
+    }
   }
 
   createRoom(game = 'slice', targetWins = 5) {
-    if (!this.connected) return;
-    this.ws.send(JSON.stringify({ type: 'create-room', game, targetWins }));
+    const roomId = (this.roomId || Math.random().toString(36).substring(2, 7)).toUpperCase();
+    this.roomId = roomId;
+    this.role = 'p1';
+
+    const origin = (window.location.protocol === 'file:' || !window.location.origin || window.location.origin === 'null')
+      ? `http://${this.serverLanIp}:3000`
+      : (window.location.hostname === 'localhost' ? `http://${this.serverLanIp}:3000` : window.location.origin);
+    const joinUrl = `${origin}/?room=${roomId}`;
+
+    // Optimistically update the UI instantly so the user is never blocked!
+    this.onEvent({
+      type: 'room-created',
+      roomId,
+      role: 'p1',
+      joinUrl
+    });
+
+    if (this.connected && this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'create-room', roomId, game, targetWins }));
+    } else {
+      this.pendingCreate = { roomId, game, targetWins };
+      this.connect();
+    }
   }
 
   joinRoom(roomId) {
-    if (!this.connected) return;
     this.roomId = roomId.toUpperCase();
-    this.ws.send(JSON.stringify({ type: 'join-room', roomId: this.roomId }));
+    if (this.connected && this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'join-room', roomId: this.roomId }));
+    } else {
+      this.connect();
+    }
   }
 
   startMatch(targetWins = 5) {
@@ -1607,6 +1666,7 @@ class GameArena {
     this.toggleDebug = document.getElementById('toggleDebug');
 
     this.sounds = new WebSoundManager();
+    this.sound = this.sounds; // Compatibility alias
     this.multiplayer = new MultiplayerClient(this.handleMultiplayerEvent.bind(this));
 
     // Player 1 Engine
@@ -1802,6 +1862,7 @@ class GameArena {
 
     this.btnCreateRoom.addEventListener('click', () => {
       this.targetWins = parseInt(this.targetWinsSelect.value);
+      this.multiplayer.roomId = null; // generate new room code
       this.multiplayer.createRoom(this.currentGame, this.targetWins);
     });
 
@@ -1918,8 +1979,11 @@ class GameArena {
     }
 
     if (this.playMode === 'online' && this.multiplayer.role === 'p1') {
-      this.multiplayer.ws.send(JSON.stringify({ type: 'select-game', game }));
+      this.multiplayer.ws?.send(JSON.stringify({ type: 'select-game', game }));
     }
+
+    // Auto-launch into active play immediately so games never get stuck!
+    this.handleStartAction();
   }
 
   spawnBalloons(roundNo) {
@@ -2015,6 +2079,10 @@ class GameArena {
       this.multiplayerModal.classList.remove('hidden');
       this.dualScoreboard.classList.remove('hidden');
       this.speedoP2.classList.remove('hidden');
+      // Automatically generate room and link on opening 2-device mode!
+      if (!this.multiplayer.roomId) {
+        this.multiplayer.createRoom(this.currentGame, this.targetWins);
+      }
     }
   }
 
@@ -2239,19 +2307,19 @@ class GameArena {
           if (this.isProcessingFrame) return; // Drop frame if previous is still computing!
           this.isProcessingFrame = true;
           try {
-            if (this.mpCtx && this.video.videoWidth > 0) {
-              this.mpCtx.drawImage(this.video, 0, 0, 320, 240);
-              const imgTarget = this.mpCanvas;
+            if (this.video.videoWidth > 0) {
               if (this.currentGame === 'catch') {
-                if (this.faceModel) await this.faceModel.send({ image: imgTarget });
+                if (this.faceModel) await this.faceModel.send({ image: this.video });
+                else await hands.send({ image: this.video });
               } else if (this.currentGame === 'yoga' || this.currentGame === 'anime') {
-                if (this.poseModel) await this.poseModel.send({ image: imgTarget });
+                if (this.poseModel) await this.poseModel.send({ image: this.video });
+                else await hands.send({ image: this.video });
               } else {
-                await hands.send({ image: imgTarget });
+                await hands.send({ image: this.video });
               }
             }
           } catch (e) {
-            // ignore
+            // ignore frame error
           } finally {
             this.isProcessingFrame = false;
           }
@@ -2266,12 +2334,26 @@ class GameArena {
   }
 
   handleMultiplayerEvent(msg) {
-    if (msg.type === 'room-created') {
+    if (msg.type === 'connected') {
+      const pill = document.getElementById('wsStatusPill');
+      if (pill) {
+        pill.className = 'conn-pill online';
+        pill.textContent = '🟢 Server Online';
+      }
+    } else if (msg.type === 'disconnected') {
+      const pill = document.getElementById('wsStatusPill');
+      if (pill) {
+        pill.className = 'conn-pill connecting';
+        pill.textContent = '🟡 Reconnecting...';
+      }
+    } else if (msg.type === 'room-created') {
       this.multiplayer.role = 'p1';
       this.multiplayer.roomId = msg.roomId;
       this.roomShareInfo.classList.remove('hidden');
       this.displayRoomCode.textContent = msg.roomId;
       this.shareUrlInput.value = msg.joinUrl;
+      const testLink = document.getElementById('btnTestNewWindow');
+      if (testLink) testLink.href = msg.joinUrl;
       this.roomBadge.classList.remove('hidden');
       this.roomBadgeText.textContent = `ROOM: ${msg.roomId} (HOST)`;
     } else if (msg.type === 'room-joined') {
@@ -2903,19 +2985,24 @@ class GameArena {
     this.resultModal.classList.remove('hidden');
   }
 
+  showResults(title = 'GAME OVER', subtitle = '') {
+    if (this.playMode === 'local') {
+      const p1 = this.scores.p1 || 0;
+      const p2 = this.scores.p2 || 0;
+      const winner = p1 > p2 ? 'PLAYER 1 (LEFT) WINS!' : (p2 > p1 ? 'PLAYER 2 (RIGHT) WINS!' : 'EPIC TIE DUEL!');
+      this.showDualResultModal(winner, `Final Score: P1 [${p1}] vs P2 [${p2}]`);
+    } else {
+      this.showSoloResultModal('win', 0, 0, 100);
+      const resTitle = document.getElementById('resultTitle');
+      const resBadge = document.getElementById('resultBadge');
+      if (resTitle) resTitle.textContent = title;
+      if (resBadge) resBadge.textContent = subtitle || `SCORE: ${this.scores.p1 || 0}`;
+    }
+  }
+
   draw(now) {
     this.ctx.clearRect(0, 0, CONFIG.windowW, CONFIG.windowH);
-
-    // Pixel-perfect video mirror alignment
-    if (this.cameraBg && this.video.readyState >= 2) {
-      const t = this.cameraTransform;
-      this.ctx.save();
-      this.ctx.translate(CONFIG.windowW, 0);
-      this.ctx.scale(-1, 1);
-      this.ctx.globalAlpha = 0.35;
-      this.ctx.drawImage(this.video, -t.offsetX - t.renderW + CONFIG.windowW, t.offsetY, t.renderW, t.renderH);
-      this.ctx.restore();
-    }
+    // Note: Video is hardware-composited on #webcam at 0% canvas CPU load!
 
     // Active game rendering
     if (this.currentGame === 'slice') {
@@ -3192,14 +3279,28 @@ class GameArena {
   }
 
   loop() {
-    const nowMs = performance.now();
-    const dt = Math.min(0.1, (nowMs - this.lastFrameTime) / 1000);
-    this.lastFrameTime = nowMs;
-    this.fps = 0.92 * this.fps + 0.08 * (1 / (dt || 0.016));
-    const now = nowMs / 1000;
+    try {
+      const nowMs = performance.now();
+      const dt = Math.min(0.05, (nowMs - this.lastFrameTime) / 1000);
+      this.lastFrameTime = nowMs;
+      this.fps = 0.92 * this.fps + 0.08 * (1 / (dt || 0.016));
+      const now = nowMs / 1000;
 
-    this.update(now, dt);
-    this.draw(now);
+      // Sub-frame Dead-Reckoning velocity extrapolation (butter-smooth 60+ FPS motion):
+      if (this.p1Point && this.filterP1 && this.filterP1.dx) {
+        this.p1Point.x += this.filterP1.dx * dt * 0.28;
+        this.p1Point.y += this.filterP1.dy * dt * 0.28;
+      }
+      if (this.p2Point && this.filterP2 && this.filterP2.dx) {
+        this.p2Point.x += this.filterP2.dx * dt * 0.28;
+        this.p2Point.y += this.filterP2.dy * dt * 0.28;
+      }
+
+      this.update(now, dt);
+      this.draw(now);
+    } catch (err) {
+      console.error('Frame loop error (prevented freeze):', err);
+    }
     requestAnimationFrame(this.loop);
   }
 }
