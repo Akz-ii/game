@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Blade Arena - Motion Arcade & Dual Player</title>
+  <meta name="description" content="Physical motion gaming arcade with AI Hand Tracking: Fruit Slice, Target Blitz, and Ninja Deflect in Solo, Same-Device Dual, and Cross-Device Online link modes.">
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;700;800;900&family=Outfit:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+  
+  <!-- MediaPipe Hands, Face Detection, Pose & Camera Utils -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app" class="game-container">
+    <!-- Hidden webcam video source -->
+    <video id="webcam" playsinline muted autoplay></video>
+
+    <!-- Main Game Canvas -->
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- UI Overlay Layer -->
+    <div id="uiOverlay" class="ui-overlay">
+      <!-- Top Navigation & Controls Bar -->
+      <header class="top-bar">
+        <!-- Left: Game Mode & Game Selector -->
+        <div class="header-left">
+          <div class="game-selector-dropdown glass">
+            <span class="dropdown-label">GAME:</span>
+            <select id="gameSelect" class="clean-select">
+              <option value="slice" selected>🍉 Fruit Slice Duel</option>
+              <option value="archery">🏹 Balloon Archer Duel</option>
+              <option value="hoop">🏀 Hoop Shots Basketball</option>
+              <option value="cow">🥛 Milk the Cow</option>
+              <option value="paint">🎨 Wall Painter (Screen Rush)</option>
+              <option value="catch">🧺 Fruit Catch (Head Basket)</option>
+              <option value="yoga">🧘 Yoga Pose Master</option>
+              <option value="anime">⚡ Anime Pose Challenge</option>
+            </select>
+          </div>
+
+          <div class="mode-tabs glass">
+            <button id="tabSolo" class="mode-tab active" data-mode="solo">👤 Solo</button>
+            <button id="tabDualLocal" class="mode-tab" data-mode="local">👥 1 Device (2 Hands)</button>
+            <button id="tabDualOnline" class="mode-tab" data-mode="online">🌐 2 Laptops (Link)</button>
+          </div>
+        </div>
+
+        <!-- Center: Tracking Status & Room Badge -->
+        <div class="header-center">
+          <div id="trackingBadge" class="tracking-badge glass">
+            <span class="pulse-dot"></span>
+            <span id="trackingText">INITIALIZING AI...</span>
+          </div>
+          <div id="roomBadge" class="room-badge glass hidden">
+            <span class="room-indicator online"></span>
+            <span id="roomBadgeText">ROOM: -</span>
+          </div>
+        </div>
+
+        <!-- Right: Audio, Calibration & Fullscreen -->
+        <div class="header-right">
+          <button id="btnSound" class="icon-btn glass" title="Toggle Sound">
+            <svg id="iconSoundOn" viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+              <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+            </svg>
+            <svg id="iconSoundOff" viewBox="0 0 24 24" width="20" height="20" fill="currentColor" style="display:none;">
+              <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>
+            </svg>
+          </button>
+          <button id="btnSettings" class="icon-btn glass" title="Settings & Sensitivity">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+              <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
+            </svg>
+          </button>
+          <button id="btnFullscreen" class="icon-btn glass" title="Fullscreen">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+              <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <!-- Dual Player Scoreboard (Visible in 2-Player Modes) -->
+      <div id="dualScoreboard" class="dual-scoreboard glass hidden">
+        <div class="player-score-block p1-block">
+          <span class="p-avatar cyan">P1</span>
+          <div class="p-info">
+            <span id="p1Name" class="p-title">PLAYER 1</span>
+            <span id="p1Score" class="p-score">0</span>
+          </div>
+        </div>
+
+        <div class="match-point-divider">
+          <span class="vs-text">VS</span>
+          <span id="targetWinsLabel" class="target-label">FIRST TO 5</span>
+        </div>
+
+        <div class="player-score-block p2-block">
+          <div class="p-info right">
+            <span id="p2Name" class="p-title">PLAYER 2</span>
+            <span id="p2Score" class="p-score">0</span>
+          </div>
+          <span class="p-avatar crimson">P2</span>
+        </div>
+      </div>
+
+      <!-- Live Speedometer HUDs -->
+      <!-- Player 1 Speedometer (Left) -->
+      <div id="speedoP1" class="speedometer-box p1-speedo glass">
+        <div class="speedo-header">
+          <span id="speedoP1Title" class="speedo-title">SWIPE VELOCITY</span>
+          <span id="speedP1Value" class="speedo-number">0 <small>px/s</small></span>
+        </div>
+        <div class="speedo-bar-track">
+          <div id="speedoP1Fill" class="speedo-bar-fill cyan-grad"></div>
+        </div>
+      </div>
+
+      <!-- Player 2 Speedometer (Right - active in Dual Mode) -->
+      <div id="speedoP2" class="speedometer-box p2-speedo glass hidden">
+        <div class="speedo-header">
+          <span class="speedo-title">P2 VELOCITY</span>
+          <span id="speedP2Value" class="speedo-number p2-num">0 <small>px/s</small></span>
+        </div>
+        <div class="speedo-bar-track">
+          <div id="speedoP2Fill" class="speedo-bar-fill red-grad"></div>
+        </div>
+      </div>
+
+      <!-- Center Announcement Banner -->
+      <div id="centerBanner" class="center-banner">
+        <h1 id="bannerTitle" class="banner-title">FRUIT SLICE</h1>
+        <p id="bannerSubtitle" class="banner-subtitle">Reflex & Accuracy Duel</p>
+      </div>
+
+      <!-- Bottom Action Prompt -->
+      <div class="bottom-action-container">
+        <div id="actionPrompt" class="action-prompt glass">
+          <span class="kbd-badge">SPACE</span> or <span class="kbd-badge">CLICK</span> to Start Round
+        </div>
+        <div id="practiceTag" class="practice-tag">
+          ⚔️ Practice cut the floating fruit or targets anytime!
+        </div>
+      </div>
+    </div>
+
+    <!-- Multiplayer Room / Link Modal (Connect 2 Laptops) -->
+    <div id="multiplayerModal" class="modal-backdrop hidden">
+      <div class="modal-card glass-glow">
+        <div class="modal-head">
+          <div class="badge-row">
+            <span class="multi-badge">CROSS-DEVICE DUAL</span>
+            <span class="online-indicator"></span>
+          </div>
+          <button id="btnCloseMultiplayer" class="close-btn">&times;</button>
+        </div>
+
+        <div class="multiplayer-body">
+          <div class="multiplayer-tabs">
+            <button id="tabHostRoom" class="sub-tab active">HOST A MATCH</button>
+            <button id="tabJoinRoom" class="sub-tab">JOIN WITH LINK / CODE</button>
+          </div>
+
+          <!-- Host View -->
+          <div id="hostSection" class="multi-section">
+            <p class="section-desc">Create a room and share the link with another laptop or phone on your Wi-Fi!</p>
+            
+            <div class="room-action-row">
+              <button id="btnCreateRoom" class="primary-btn glow-btn">GENERATE DUEL LINK</button>
+            </div>
+
+            <div id="roomShareInfo" class="room-share-info hidden">
+              <div class="room-code-display">
+                <span class="label">ROOM CODE</span>
+                <span id="displayRoomCode" class="big-code">SAMURAI</span>
+              </div>
+
+              <div class="copy-link-box">
+                <input type="text" id="shareUrlInput" class="copy-input" readonly>
+                <button id="btnCopyLink" class="copy-btn">📋 COPY LINK</button>
+              </div>
+
+              <div class="host-player-status">
+                <div class="status-item ready">Host: Ready (You)</div>
+                <div id="guestWaitStatus" class="status-item waiting">Guest: Waiting for connection...</div>
+              </div>
+
+              <div class="match-settings-row">
+                <label>Win Condition:
+                  <select id="targetWinsSelect" class="form-select inline">
+                    <option value="3">First to 3 Points</option>
+                    <option value="5" selected>First to 5 Points</option>
+                    <option value="10">First to 10 Points</option>
+                  </select>
+                </label>
+              </div>
+
+              <button id="btnStartOnlineMatch" class="primary-btn glow-btn disabled" disabled>START DUEL</button>
+            </div>
+          </div>
+
+          <!-- Join View -->
+          <div id="joinSection" class="multi-section hidden">
+            <p class="section-desc">Enter the Room Code or paste the Invite Link from your friend's laptop:</p>
+            <div class="join-input-group">
+              <input type="text" id="joinRoomCodeInput" class="form-input" placeholder="e.g. SAMURAI" maxlength="16">
+              <button id="btnJoinRoomSubmit" class="primary-btn">JOIN DUEL</button>
+            </div>
+            <div id="joinStatusText" class="status-message"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Match Results Modal -->
+    <div id="resultModal" class="modal-backdrop hidden">
+      <div class="modal-card glass-glow">
+        <div class="result-header">
+          <span id="resultBadge" class="result-badge">ROUND COMPLETE</span>
+          <h2 id="resultTitle" class="result-title">NICE CUT!</h2>
+        </div>
+
+        <div id="soloResultGrid" class="result-grid">
+          <div class="result-metric">
+            <span class="metric-label">REACTION TIME</span>
+            <span id="resReaction" class="metric-val">240 ms</span>
+            <span id="resReactionRating" class="metric-rating">NINJA REFLEXES!</span>
+          </div>
+          <div class="result-metric">
+            <span class="metric-label">SWIPE SPEED</span>
+            <span id="resSpeed" class="metric-val highlight-cyan">1,620 px/s</span>
+            <span id="resSpeedRating" class="metric-rating">⚡ LIGHTNING CUT!</span>
+          </div>
+          <div class="result-metric">
+            <span class="metric-label">CUT ACCURACY</span>
+            <span id="resAccuracy" class="metric-val highlight-yellow">96%</span>
+            <span id="resAccuracyRating" class="metric-rating">🎯 BULLSEYE!</span>
+          </div>
+        </div>
+
+        <div id="dualResultGrid" class="dual-result-box hidden">
+          <div id="dualWinnerAnnounce" class="dual-winner-title">PLAYER 1 WINS THE ROUND!</div>
+          <div id="dualRoundStats" class="dual-stats-sub">Reaction: 215ms | Speed: 1,840 px/s</div>
+        </div>
+
+        <div id="soloRankBox" class="rank-container">
+          <div class="rank-label">OVERALL COMBAT RANK</div>
+          <div id="resRankBadge" class="rank-emblem rank-s-plus">S+</div>
+        </div>
+
+        <div class="modal-actions">
+          <button id="btnNextRound" class="primary-btn glow-btn">
+            NEXT ROUND <span class="kbd-hint">[SPACE]</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settingsModal" class="modal-backdrop hidden">
+      <div class="modal-card glass">
+        <div class="modal-head">
+          <h3>SETTINGS & CALIBRATION</h3>
+          <button id="btnCloseSettings" class="close-btn">&times;</button>
+        </div>
+        
+        <div class="settings-body">
+          <div class="setting-item">
+            <label for="inputMode">Input Control</label>
+            <select id="inputMode" class="form-select">
+              <option value="auto" selected>AI Hand Tracking (Webcam) + Mouse/Touch</option>
+              <option value="mouse">Mouse & Touch Only</option>
+              <option value="camera">Webcam AI Hand Tracking Only</option>
+            </select>
+          </div>
+
+          <div class="setting-item">
+            <label for="dualTargetMode">Two-Player Target Layout</label>
+            <select id="dualTargetMode" class="form-select">
+              <option value="split" selected>Dual Split Targets (Left P1 vs Right P2 - Recommended)</option>
+              <option value="center">Single Shared Target (Center Duel)</option>
+            </select>
+            <small>Split mode gives each player their own target side to prevent arm collision.</small>
+          </div>
+
+          <div class="setting-item">
+            <div class="slider-header">
+              <label for="speedSens">Min Slice Speed Threshold</label>
+              <span id="speedSensVal">260 px/s</span>
+            </div>
+            <input type="range" id="speedSens" min="150" max="600" step="10" value="260" class="form-range">
+            <small>Lower = triggers on lighter, fast flicks; Higher = requires deliberate swings.</small>
+          </div>
+
+          <div class="setting-item">
+            <div class="slider-header">
+              <label for="hitboxScale">Hitbox Tolerance Multiplier</label>
+              <span id="hitboxScaleVal">1.50x</span>
+            </div>
+            <input type="range" id="hitboxScale" min="1.0" max="2.0" step="0.05" value="1.50" class="form-range">
+            <small>1.50x provides generous, reliable arcade hit registration for rapid swipes.</small>
+          </div>
+
+          <div class="setting-item checkbox-row">
+            <label for="toggleCameraBg">Show Webcam Background</label>
+            <input type="checkbox" id="toggleCameraBg" checked>
+          </div>
+
+          <div class="setting-item checkbox-row">
+            <label for="toggleDebug">Show Debug Telemetry Overlay (D)</label>
+            <input type="checkbox" id="toggleDebug">
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script type="module" src="main.js"></script>
+</body>
+</html>
