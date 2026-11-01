@@ -50,6 +50,13 @@ function broadcastToAll(room, message) {
   });
 }
 
+process.on('uncaughtException', (err) => {
+  console.warn('[server uncaught exception]:', err?.message || err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.warn('[server unhandled rejection]:', reason);
+});
+
 async function start() {
   const server = http.createServer((req, res) => {
     if (req.url === '/api/info') {
@@ -63,11 +70,24 @@ async function start() {
     }
   });
 
-  const wss = new WebSocketServer({ server });
+  const wss = new WebSocketServer({ noServer: true });
+  wss.on('error', (err) => console.warn('[multiplayer wss error]:', err?.message || err));
+
+  server.on('upgrade', (req, socket, head) => {
+    if (req.url === '/ws' || req.url.startsWith('/ws?') || req.url === '/' && req.headers['sec-websocket-protocol'] !== 'vite-hmr') {
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        wss.emit('connection', ws, req);
+      });
+    }
+  });
 
   wss.on('connection', (ws) => {
     let currentRoomId = null;
     let playerRole = null; // 'p1' (host) or 'p2' (guest)
+
+    ws.on('error', (err) => {
+      console.warn('[multiplayer client socket error]:', err?.message || err);
+    });
 
     ws.on('message', (raw) => {
       try {

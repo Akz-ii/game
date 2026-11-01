@@ -1379,11 +1379,11 @@ class MultiplayerClient {
 
     let wsUrl;
     if (window.location.protocol === 'file:') {
-      wsUrl = 'ws://localhost:3000';
+      wsUrl = 'ws://localhost:3000/ws';
     } else {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const host = window.location.host || 'localhost:3000';
-      wsUrl = `${protocol}//${host}`;
+      wsUrl = `${protocol}//${host}/ws`;
     }
 
     try {
