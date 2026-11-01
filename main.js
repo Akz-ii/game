@@ -530,10 +530,10 @@ class SliceDetector {
         y: bestProj.y - fruitCenter.y
       } : { x: 0, y: 0 };
 
-      if (isHit || j === 0) {
+      if (isHit) {
         this.lastSliceTime = now;
         return {
-          hit: isHit,
+          hit: true,
           direction: bestDir || { x: (newest.x - p0.x) / strokeDist, y: (newest.y - p0.y) / strokeDist },
           peakSpeed: Math.max(peakSpeed, avgSpeed),
           avgSpeed,
@@ -1498,8 +1498,14 @@ class MultiplayerClient {
   }
 
   syncBlade(point, speed) {
-    if (!this.connected) return;
-    this.ws.send(JSON.stringify({ type: 'sync-blade', point, speed }));
+    if (!this.connected || !point) return;
+    const normX = point.x / window.innerWidth;
+    const normY = point.y / window.innerHeight;
+    this.ws.send(JSON.stringify({
+      type: 'sync-blade',
+      point: { x: point.x, y: point.y, normX, normY },
+      speed
+    }));
   }
 
   shootArrow(arrow) {
@@ -1741,8 +1747,25 @@ class GameArena {
     this.fps = 60;
     this.cameraTransform = { scale: 1, offsetX: 0, offsetY: 0, renderW: CONFIG.windowW, renderH: CONFIG.windowH };
 
+    // Auto-detect Guest joining via room link
+    const urlParams = new URLSearchParams(window.location.search);
+    const roomParam = urlParams.get('room');
+    if (roomParam) {
+      this.playMode = 'online';
+      this.multiplayer.roomId = roomParam.toUpperCase();
+      this.multiplayer.role = 'p2';
+    }
+
     this.initCanvasSize();
     this.bindEvents();
+
+    if (roomParam) {
+      this.setPlayMode('online');
+      this.multiplayerModal.classList.add('hidden');
+      this.bannerTitle.textContent = 'CONNECTING TO DUEL...';
+      this.bannerSubtitle.textContent = `Joining Room ${roomParam.toUpperCase()} as Guest`;
+    }
+
     this.initMediaPipe();
     this.multiplayer.connect();
 
@@ -1867,10 +1890,22 @@ class GameArena {
     });
 
     this.btnCopyLink.addEventListener('click', () => {
-      navigator.clipboard.writeText(this.shareUrlInput.value).then(() => {
+      const val = this.shareUrlInput.value;
+      const onCopied = () => {
         this.btnCopyLink.textContent = '✅ LINK COPIED!';
         setTimeout(() => { this.btnCopyLink.textContent = '📋 COPY LINK'; }, 2000);
-      });
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(val).then(onCopied).catch(() => {
+          this.shareUrlInput.select();
+          document.execCommand('copy');
+          onCopied();
+        });
+      } else {
+        this.shareUrlInput.select();
+        document.execCommand('copy');
+        onCopied();
+      }
     });
 
     this.btnStartOnlineMatch.addEventListener('click', () => {
@@ -2076,12 +2111,14 @@ class GameArena {
       this.actionPrompt.style.display = 'block';
       this.bannerSubtitle.textContent = this.currentGame === 'archery' ? 'P1 Shoots Left Balloons  |  P2 Shoots Right Balloons' : 'P1 Cuts Left Fruit  |  P2 Cuts Right Fruit';
     } else if (mode === 'online') {
-      this.multiplayerModal.classList.remove('hidden');
       this.dualScoreboard.classList.remove('hidden');
       this.speedoP2.classList.remove('hidden');
-      // Automatically generate room and link on opening 2-device mode!
-      if (!this.multiplayer.roomId) {
-        this.multiplayer.createRoom(this.currentGame, this.targetWins);
+      const params = new URLSearchParams(window.location.search);
+      if (!params.get('room') && this.multiplayer.role !== 'p2') {
+        this.multiplayerModal.classList.remove('hidden');
+        if (!this.multiplayer.roomId) {
+          this.multiplayer.createRoom(this.currentGame, this.targetWins);
+        }
       }
     }
   }
@@ -2347,38 +2384,65 @@ class GameArena {
         pill.textContent = '🟡 Reconnecting...';
       }
     } else if (msg.type === 'room-created') {
+      this.playMode = 'online';
       this.multiplayer.role = 'p1';
       this.multiplayer.roomId = msg.roomId;
       this.roomShareInfo.classList.remove('hidden');
       this.displayRoomCode.textContent = msg.roomId;
       this.shareUrlInput.value = msg.joinUrl;
       const testLink = document.getElementById('btnTestNewWindow');
-      if (testLink) testLink.href = msg.joinUrl;
+      if (testLink) testLink.href = `/?room=${msg.roomId}`;
       this.roomBadge.classList.remove('hidden');
       this.roomBadgeText.textContent = `ROOM: ${msg.roomId} (HOST)`;
+      this.guestWaitStatus.textContent = 'Guest: Waiting for connection...';
+      this.guestWaitStatus.className = 'status-item waiting';
     } else if (msg.type === 'room-joined') {
+      this.playMode = 'online';
       this.multiplayer.role = 'p2';
       this.multiplayer.roomId = msg.roomId;
+      this.setPlayMode('online');
       this.multiplayerModal.classList.add('hidden');
       this.roomBadge.classList.remove('hidden');
       this.roomBadgeText.textContent = `ROOM: ${msg.roomId} (GUEST)`;
-      this.scores = msg.scores;
-      this.targetWins = msg.targetWins;
+      this.scores = msg.scores || { p1: 0, p2: 0 };
+      this.targetWins = msg.targetWins || 5;
       this.updateScoreboardUI();
       if (msg.game) this.setGame(msg.game);
+      this.bannerTitle.textContent = 'CONNECTED AS GUEST!';
+      this.bannerSubtitle.textContent = 'Ready! Opponent is Host (Player 1)';
+      (this.sounds || this.sound)?.playGong();
     } else if (msg.type === 'player-joined') {
-      this.guestWaitStatus.textContent = 'Guest Connected! Ready to Fight.';
+      this.guestWaitStatus.textContent = '✅ Guest Connected! Starting Duel...';
       this.guestWaitStatus.className = 'status-item ready';
       this.btnStartOnlineMatch.classList.remove('disabled');
       this.btnStartOnlineMatch.removeAttribute('disabled');
+      this.bannerTitle.textContent = 'GUEST CONNECTED!';
+      this.bannerSubtitle.textContent = 'Auto-starting match in 1.5s...';
+      (this.sounds || this.sound)?.playGong();
+
+      if (this.startMatchTimer) clearTimeout(this.startMatchTimer);
+      this.startMatchTimer = setTimeout(() => {
+        this.multiplayerModal.classList.add('hidden');
+        this.multiplayer.startMatch(this.targetWins);
+      }, 1500);
     } else if (msg.type === 'game-changed') {
       this.setGame(msg.game);
     } else if (msg.type === 'match-started') {
       this.multiplayerModal.classList.add('hidden');
-      this.scores = msg.scores;
-      this.targetWins = msg.targetWins;
+      this.scores = msg.scores || { p1: 0, p2: 0 };
+      this.targetWins = msg.targetWins || 5;
       this.updateScoreboardUI();
-      this.startOnlineRound();
+      if (msg.game && msg.game !== this.currentGame) {
+        this.setGame(msg.game);
+      }
+      this.bannerTitle.textContent = 'DUEL STARTED!';
+      this.bannerSubtitle.textContent = `First to ${this.targetWins} points wins!`;
+      (this.sounds || this.sound)?.playGong();
+      if (this.multiplayer.role === 'p1') {
+        setTimeout(() => {
+          this.startOnlineRound();
+        }, 1200);
+      }
     } else if (msg.type === 'round-start') {
       this.state = 'WAIT';
       this.stateStart = performance.now() / 1000;
@@ -2408,12 +2472,19 @@ class GameArena {
         this.sounds.playSlice();
       }
 
-      const winnerText = msg.winnerRole === this.multiplayer.role ? 'YOU WON THE ROUND!' : 'OPPONENT WON THE ROUND!';
-      this.showDualResultModal(winnerText, `Reaction: ${Math.round(msg.reactionMs)}ms | Speed: ${Math.round(msg.speed)} px/s`);
+      const isMe = msg.winnerRole === this.multiplayer.role;
+      const winnerText = isMe ? 'YOU WON THE ROUND!' : 'OPPONENT WON THE ROUND!';
+      const reaction = Math.round(msg.reactionMs || 0);
+      const speed = Math.round(msg.speed || 0);
+      const isMatchOver = (this.scores.p1 >= this.targetWins || this.scores.p2 >= this.targetWins);
+      this.showDualResultModal(winnerText, `Reaction: ${reaction}ms | Speed: ${speed} px/s`, isMatchOver);
     } else if (msg.type === 'opponent-blade') {
-      this.p2Point = msg.point;
+      const pt = (msg.point && msg.point.normX !== undefined)
+        ? { x: msg.point.normX * CONFIG.windowW, y: msg.point.normY * CONFIG.windowH }
+        : msg.point;
+      this.p2Point = pt;
       this.p2Speed = msg.speed;
-      this.detectorP2.addSample(performance.now() / 1000, msg.point.x, msg.point.y, msg.speed);
+      this.detectorP2.addSample(performance.now() / 1000, pt.x, pt.y, msg.speed);
     } else if (msg.type === 'target-scored') {
       this.scores = msg.scores;
       this.updateScoreboardUI();
@@ -2521,6 +2592,11 @@ class GameArena {
   }
 
   handleStartAction() {
+    if (this.autoAdvanceTimer) {
+      clearTimeout(this.autoAdvanceTimer);
+      this.autoAdvanceTimer = null;
+    }
+    this.btnNextRound.textContent = 'NEXT ROUND [SPACE]';
     const now = performance.now() / 1000;
     if (this.playMode === 'online') {
       if (this.multiplayer.role === 'p1') {
@@ -2624,10 +2700,34 @@ class GameArena {
   }
 
   startOnlineRound() {
-    const fruitKeys = Object.keys(FRUITS);
-    const fruitKind = fruitKeys[Math.floor(Math.random() * fruitKeys.length)];
-    const waitTime = 2.0 + Math.random() * 2.5;
-    this.multiplayer.startRound(fruitKind, waitTime);
+    this.resultModal.classList.add('hidden');
+    if (this.currentGame === 'slice') {
+      const fruitKeys = Object.keys(FRUITS);
+      const fruitKind = fruitKeys[Math.floor(Math.random() * fruitKeys.length)];
+      const waitTime = 2.0 + Math.random() * 2.5;
+      this.multiplayer.startRound(fruitKind, waitTime);
+    } else if (this.currentGame === 'archery') {
+      this.state = 'PLAY';
+      this.archeryRound = 1;
+      this.archeryArrowsLeft = 7;
+      this.arrows = [];
+      this.spawnBalloons(1);
+    } else if (this.currentGame === 'hoop') {
+      this.state = 'PLAY';
+      this.hoopGame.reset();
+    } else if (this.currentGame === 'cow') {
+      this.state = 'PLAY';
+      this.cowGame.reset();
+    } else if (this.currentGame === 'paint') {
+      this.state = 'PLAY';
+      this.painterGame.reset();
+    } else if (this.currentGame === 'catch') {
+      this.state = 'PLAY';
+      this.catchGame.reset();
+    } else if (this.currentGame === 'yoga' || this.currentGame === 'anime') {
+      this.state = 'PLAY';
+      this.poseGame.reset();
+    }
   }
 
   update(now, dt) {
@@ -2693,14 +2793,16 @@ class GameArena {
               target.slice(sliceP2.direction, now, sliceP2.cutOffset);
               this.sounds.playSlice();
               this.state = 'RESULT';
-              this.showDualResultModal('PLAYER 2 (RIGHT) WINS DUEL!', `⚡ Faster Cut! Speed: ${Math.round(sliceP2.peakSpeed)} vs ${Math.round(sliceP1.peakSpeed)} px/s`);
+              const isMatchOver = (this.scores.p2 >= this.targetWins);
+              this.showDualResultModal('PLAYER 2 (RIGHT) WINS DUEL!', `⚡ Faster Cut! Speed: ${Math.round(sliceP2.peakSpeed)} vs ${Math.round(sliceP1.peakSpeed)} px/s`, isMatchOver);
             } else {
               this.scores.p1++;
               this.updateScoreboardUI();
               this.fruitP1.slice(sliceP1.direction, now, sliceP1.cutOffset);
               this.sounds.playSlice();
               this.state = 'RESULT';
-              this.showDualResultModal('PLAYER 1 (LEFT) WINS DUEL!', `⚡ Faster Cut! Speed: ${Math.round(sliceP1.peakSpeed)} vs ${Math.round(sliceP2.peakSpeed)} px/s`);
+              const isMatchOver = (this.scores.p1 >= this.targetWins);
+              this.showDualResultModal('PLAYER 1 (LEFT) WINS DUEL!', `⚡ Faster Cut! Speed: ${Math.round(sliceP1.peakSpeed)} vs ${Math.round(sliceP2.peakSpeed)} px/s`, isMatchOver);
             }
           } else if (p1Hit) {
             this.scores.p1++;
@@ -2708,7 +2810,8 @@ class GameArena {
             this.fruitP1.slice(sliceP1.direction, now, sliceP1.cutOffset);
             this.sounds.playSlice();
             this.state = 'RESULT';
-            this.showDualResultModal('PLAYER 1 (LEFT) WINS ROUND!', `Speed: ${Math.round(sliceP1.peakSpeed)} px/s | Accuracy: ${Math.round(sliceP1.accuracy)}%`);
+            const isMatchOver = (this.scores.p1 >= this.targetWins);
+            this.showDualResultModal('PLAYER 1 (LEFT) WINS ROUND!', `Speed: ${Math.round(sliceP1.peakSpeed)} px/s | Accuracy: ${Math.round(sliceP1.accuracy)}%`, isMatchOver);
           } else if (p2Hit) {
             this.scores.p2++;
             this.updateScoreboardUI();
@@ -2716,7 +2819,8 @@ class GameArena {
             target.slice(sliceP2.direction, now, sliceP2.cutOffset);
             this.sounds.playSlice();
             this.state = 'RESULT';
-            this.showDualResultModal('PLAYER 2 (RIGHT) WINS ROUND!', `Speed: ${Math.round(sliceP2.peakSpeed)} px/s | Accuracy: ${Math.round(sliceP2.accuracy)}%`);
+            const isMatchOver = (this.scores.p2 >= this.targetWins);
+            this.showDualResultModal('PLAYER 2 (RIGHT) WINS ROUND!', `Speed: ${Math.round(sliceP2.peakSpeed)} px/s | Accuracy: ${Math.round(sliceP2.accuracy)}%`, isMatchOver);
           }
         } else if (this.playMode === 'online') {
           if (sliceP1 && sliceP1.hit) {
@@ -2972,25 +3076,74 @@ class GameArena {
     this.resultModal.classList.remove('hidden');
   }
 
-  showDualResultModal(winnerTitle, statsSubtitle) {
+  showDualResultModal(winnerTitle, statsSubtitle, isMatchOver = false) {
+    if (this.autoAdvanceTimer) {
+      clearTimeout(this.autoAdvanceTimer);
+      this.autoAdvanceTimer = null;
+    }
+    if (this.countdownInterval) {
+      clearInterval(this.countdownInterval);
+      this.countdownInterval = null;
+    }
+
     this.soloResultGrid.classList.add('hidden');
     this.soloRankBox.classList.add('hidden');
     this.dualResultGrid.classList.remove('hidden');
 
-    document.getElementById('resultBadge').textContent = 'DUEL RESULT';
-    document.getElementById('resultTitle').textContent = 'ROUND COMPLETE';
+    document.getElementById('resultBadge').textContent = isMatchOver ? '🏆 MATCH CHAMPION' : 'DUEL RESULT';
+    document.getElementById('resultTitle').textContent = isMatchOver ? 'MATCH DECIDED!' : 'ROUND COMPLETE';
     this.dualWinnerAnnounce.textContent = winnerTitle;
     this.dualRoundStats.textContent = statsSubtitle;
 
     this.resultModal.classList.remove('hidden');
+
+    // Auto-advance so players never have to leave camera view to touch the mouse
+    const delay = isMatchOver ? 4500 : 2500;
+    let secondsLeft = Math.ceil(delay / 1000);
+    this.btnNextRound.textContent = isMatchOver
+      ? `NEW MATCH IN ${secondsLeft}s...`
+      : `NEXT ROUND IN ${secondsLeft}s... [SPACE]`;
+
+    this.countdownInterval = setInterval(() => {
+      secondsLeft--;
+      if (secondsLeft > 0) {
+        this.btnNextRound.textContent = isMatchOver
+          ? `NEW MATCH IN ${secondsLeft}s...`
+          : `NEXT ROUND IN ${secondsLeft}s... [SPACE]`;
+      } else {
+        clearInterval(this.countdownInterval);
+        this.countdownInterval = null;
+      }
+    }, 1000);
+
+    this.autoAdvanceTimer = setTimeout(() => {
+      if (this.countdownInterval) {
+        clearInterval(this.countdownInterval);
+        this.countdownInterval = null;
+      }
+      this.btnNextRound.textContent = 'NEXT ROUND [SPACE]';
+      if (isMatchOver) {
+        this.scores = { p1: 0, p2: 0 };
+        this.updateScoreboardUI();
+      }
+      this.resultModal.classList.add('hidden');
+      if (this.playMode === 'online') {
+        if (this.multiplayer.role === 'p1') {
+          this.startOnlineRound();
+        }
+      } else {
+        this.handleStartAction();
+      }
+    }, delay);
   }
 
   showResults(title = 'GAME OVER', subtitle = '') {
     if (this.playMode === 'local') {
       const p1 = this.scores.p1 || 0;
       const p2 = this.scores.p2 || 0;
+      const isMatchOver = (p1 >= this.targetWins || p2 >= this.targetWins);
       const winner = p1 > p2 ? 'PLAYER 1 (LEFT) WINS!' : (p2 > p1 ? 'PLAYER 2 (RIGHT) WINS!' : 'EPIC TIE DUEL!');
-      this.showDualResultModal(winner, `Final Score: P1 [${p1}] vs P2 [${p2}]`);
+      this.showDualResultModal(winner, `${title} | Score: P1 [${p1}] vs P2 [${p2}]`, isMatchOver);
     } else {
       this.showSoloResultModal('win', 0, 0, 100);
       const resTitle = document.getElementById('resultTitle');

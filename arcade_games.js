@@ -358,6 +358,12 @@ export class HoopGame {
 
         if (this.arena.playMode === 'online' && this.arena.multiplayer.role === scorer) {
           this.arena.multiplayer.scoreBasketball(res.points);
+        } else if (this.arena.playMode === 'local') {
+          const targetPts = this.arena.targetWins * 2;
+          if (this.scores[scorer] >= targetPts) {
+            const winnerName = scorer === 'p1' ? 'PLAYER 1 (LEFT)' : 'PLAYER 2 (RIGHT)';
+            this.arena.showDualResultModal(`🏆 ${winnerName} WINS HOOPS!`, `Score: P1 [${this.scores.p1}] - P2 [${this.scores.p2}]`, true);
+          }
         }
       }
     }
@@ -618,6 +624,12 @@ export class CowGame {
 
               if (this.arena.playMode === 'online' && this.arena.multiplayer.role === st.role) {
                 this.arena.multiplayer.finishCow(now);
+              } else if (this.arena.playMode === 'local') {
+                const winnerName = st.role === 'p1' ? 'PLAYER 1 (LEFT)' : 'PLAYER 2 (RIGHT)';
+                const isMatchOver = (this.arena.scores.p1 >= this.arena.targetWins || this.arena.scores.p2 >= this.arena.targetWins);
+                this.arena.showDualResultModal(`${winnerName} WINS!`, `Filled Bucket First! (P1: ${this.arena.scores.p1} vs P2: ${this.arena.scores.p2})`, isMatchOver);
+              } else if (this.arena.playMode === 'solo') {
+                this.arena.showResults('BUCKET FILLED 100%!', 'Great Milking Speed!');
               }
             }
           }
@@ -1112,6 +1124,12 @@ export class CatchGame {
 
           if (this.arena.playMode === 'online' && this.arena.multiplayer.role === role) {
             this.arena.multiplayer.catchFruitScored(f.id, f.kind === 'star' ? 3 : 1);
+          } else if (this.arena.playMode === 'local') {
+            const targetScore = this.arena.targetWins * 3;
+            if (this.arena.scores[role] >= targetScore) {
+              const winnerName = role === 'p1' ? 'PLAYER 1 (LEFT)' : 'PLAYER 2 (RIGHT)';
+              this.arena.showDualResultModal(`🏆 ${winnerName} WINS CATCH!`, `Final Score: P1 [${this.arena.scores.p1}] - P2 [${this.arena.scores.p2}]`, true);
+            }
           }
           break;
         }
