@@ -1372,6 +1372,21 @@ class MultiplayerClient {
     this.serverLanIp = '172.17.102.226';
     this.pendingCreate = null;
     this.reconnectTimer = null;
+    this.fetchLanIp();
+  }
+
+  async fetchLanIp() {
+    try {
+      const res = await fetch('/api/info');
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.localIp) {
+          this.serverLanIp = data.localIp;
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
   }
 
   connect() {
@@ -1437,9 +1452,11 @@ class MultiplayerClient {
     }
   }
 
-  createRoom(game = 'slice', targetWins = 5) {
-    const roomId = (this.roomId || Math.random().toString(36).substring(2, 7)).toUpperCase();
-    this.roomId = roomId;
+  createRoom(game = 'slice', targetWins = 5, forceNew = false) {
+    if (forceNew || !this.roomId) {
+      this.roomId = Math.random().toString(36).substring(2, 7).toUpperCase();
+    }
+    const roomId = this.roomId;
     this.role = 'p1';
 
     const origin = (window.location.protocol === 'file:' || !window.location.origin || window.location.origin === 'null')
@@ -1452,6 +1469,7 @@ class MultiplayerClient {
       type: 'room-created',
       roomId,
       role: 'p1',
+      localIp: this.serverLanIp,
       joinUrl
     });
 
@@ -1642,17 +1660,31 @@ class GameArena {
     this.tabJoinRoom = document.getElementById('tabJoinRoom');
     this.hostSection = document.getElementById('hostSection');
     this.joinSection = document.getElementById('joinSection');
+    this.btnHeaderInviteLink = document.getElementById('btnHeaderInviteLink');
+    this.btnGenerateNewLink = document.getElementById('btnGenerateNewLink');
     this.btnCreateRoom = document.getElementById('btnCreateRoom');
     this.roomShareInfo = document.getElementById('roomShareInfo');
     this.displayRoomCode = document.getElementById('displayRoomCode');
+    this.shareLanInput = document.getElementById('shareLanInput');
+    this.shareLocalInput = document.getElementById('shareLocalInput');
     this.shareUrlInput = document.getElementById('shareUrlInput');
+    this.btnCopyLanLink = document.getElementById('btnCopyLanLink');
+    this.btnCopyLocalLink = document.getElementById('btnCopyLocalLink');
     this.btnCopyLink = document.getElementById('btnCopyLink');
+    this.btnTestNewWindow = document.getElementById('btnTestNewWindow');
+    this.roomQrImage = document.getElementById('roomQrImage');
+    this.qrLoadingPlaceholder = document.getElementById('qrLoadingPlaceholder');
     this.guestWaitStatus = document.getElementById('guestWaitStatus');
     this.btnStartOnlineMatch = document.getElementById('btnStartOnlineMatch');
     this.targetWinsSelect = document.getElementById('targetWinsSelect');
     this.joinRoomCodeInput = document.getElementById('joinRoomCodeInput');
     this.btnJoinRoomSubmit = document.getElementById('btnJoinRoomSubmit');
     this.joinStatusText = document.getElementById('joinStatusText');
+
+    this.toastNotification = document.getElementById('toastNotification');
+    this.toastMessage = document.getElementById('toastMessage');
+    this.toastIcon = document.getElementById('toastIcon');
+    this.toastTimer = null;
 
     this.settingsModal = document.getElementById('settingsModal');
     this.btnSettings = document.getElementById('btnSettings');
@@ -1825,11 +1857,11 @@ class GameArena {
       }
     });
 
-    // Mouse / Touch fallback
-    this.canvas.addEventListener('mousemove', (e) => {
+    // Pointer (Mouse / Touch) slicing fallback
+    const handlePointerSlice = (clientX, clientY) => {
       if (this.inputModeSelect.value !== 'camera') {
         const now = performance.now() / 1000;
-        const res = this.filterP1.filter(e.clientX, e.clientY, now);
+        const res = this.filterP1.filter(clientX, clientY, now);
         this.p1Point = { x: res.x, y: res.y };
         this.p1Speed = res.speed;
         this.detectorP1.addSample(now, res.x, res.y, res.speed);
@@ -1838,7 +1870,23 @@ class GameArena {
           this.multiplayer.syncBlade(this.p1Point, this.p1Speed);
         }
       }
+    };
+
+    this.canvas.addEventListener('mousemove', (e) => {
+      handlePointerSlice(e.clientX, e.clientY);
     });
+
+    this.canvas.addEventListener('touchmove', (e) => {
+      if (e.touches && e.touches.length > 0) {
+        handlePointerSlice(e.touches[0].clientX, e.touches[0].clientY);
+      }
+    }, { passive: true });
+
+    this.canvas.addEventListener('touchstart', (e) => {
+      if (e.touches && e.touches.length > 0) {
+        handlePointerSlice(e.touches[0].clientX, e.touches[0].clientY);
+      }
+    }, { passive: true });
 
     this.actionPrompt.addEventListener('click', () => {
       this.sounds.init();
@@ -1865,6 +1913,7 @@ class GameArena {
       }
     });
 
+    // Multiplayer Modal Navigation
     this.tabHostRoom.addEventListener('click', () => {
       this.tabHostRoom.classList.add('active');
       this.tabJoinRoom.classList.remove('active');
@@ -1883,44 +1932,87 @@ class GameArena {
       this.multiplayerModal.classList.add('hidden');
     });
 
-    this.btnCreateRoom.addEventListener('click', () => {
-      this.targetWins = parseInt(this.targetWinsSelect.value);
-      this.multiplayer.roomId = null; // generate new room code
-      this.multiplayer.createRoom(this.currentGame, this.targetWins);
-    });
+    // Header Invite Button: 1-click generation and modal opener
+    if (this.btnHeaderInviteLink) {
+      this.btnHeaderInviteLink.addEventListener('click', () => {
+        this.openInviteModalAndGenerate();
+      });
+    }
 
-    this.btnCopyLink.addEventListener('click', () => {
-      const val = this.shareUrlInput.value;
-      const onCopied = () => {
-        this.btnCopyLink.textContent = '✅ LINK COPIED!';
-        setTimeout(() => { this.btnCopyLink.textContent = '📋 COPY LINK'; }, 2000);
-      };
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(val).then(onCopied).catch(() => {
-          this.shareUrlInput.select();
-          document.execCommand('copy');
-          onCopied();
-        });
-      } else {
-        this.shareUrlInput.select();
-        document.execCommand('copy');
-        onCopied();
-      }
-    });
+    // Prominent "GENERATE NEW INVITE LINK" Button inside modal
+    if (this.btnGenerateNewLink) {
+      this.btnGenerateNewLink.addEventListener('click', () => {
+        this.targetWins = parseInt(this.targetWinsSelect?.value || '5');
+        this.multiplayer.createRoom(this.currentGame, this.targetWins, true);
+        this.showToast('⚡ New Invite Link & Room Code Generated!', '⚡');
+      });
+    }
+
+    // Refresh code button
+    if (this.btnCreateRoom) {
+      this.btnCreateRoom.addEventListener('click', () => {
+        this.targetWins = parseInt(this.targetWinsSelect.value);
+        this.multiplayer.createRoom(this.currentGame, this.targetWins, true);
+        this.showToast('🔄 Refreshed Room Code!', '🔄');
+      });
+    }
+
+    // Copy Wi-Fi Link (Main invite link for 2nd laptop / mobile device)
+    if (this.btnCopyLanLink) {
+      this.btnCopyLanLink.addEventListener('click', () => {
+        const url = this.shareLanInput?.value || this.shareUrlInput?.value || '';
+        this.copyToClipboard(url, this.btnCopyLanLink, 'Wi-Fi Invite Link copied! Send to Player 2');
+      });
+    }
+
+    // Copy Localhost Link (For testing on this laptop in 2nd browser window)
+    if (this.btnCopyLocalLink) {
+      this.btnCopyLocalLink.addEventListener('click', () => {
+        const url = this.shareLocalInput?.value || '';
+        this.copyToClipboard(url, this.btnCopyLocalLink, 'Local link copied for 2nd window testing');
+      });
+    }
+
+    // Legacy copy button support
+    if (this.btnCopyLink) {
+      this.btnCopyLink.addEventListener('click', () => {
+        const val = this.shareLanInput?.value || this.shareUrlInput?.value || '';
+        this.copyToClipboard(val, this.btnCopyLink, 'Invite link copied!');
+      });
+    }
 
     this.btnStartOnlineMatch.addEventListener('click', () => {
       this.multiplayerModal.classList.add('hidden');
       this.multiplayer.startMatch(this.targetWins);
     });
 
+    // Robust Room Code & URL Parser for Guest Join
     this.btnJoinRoomSubmit.addEventListener('click', () => {
-      let code = this.joinRoomCodeInput.value.trim();
-      if (code.includes('?room=')) {
-        code = new URL(code).searchParams.get('room') || code;
+      let raw = (this.joinRoomCodeInput.value || '').trim();
+      if (!raw) {
+        this.joinStatusText.textContent = '⚠️ Please enter a room code or paste an invite link!';
+        this.joinStatusText.className = 'status-message error';
+        return;
       }
+
+      // Match query ?room=XYZ or /?room=XYZ or room=XYZ
+      let code = '';
+      const match = raw.match(/[?&]room=([A-Za-z0-9_-]+)/i);
+      if (match) {
+        code = match[1].toUpperCase();
+      } else {
+        // Strip protocols, slashes and whitespace
+        code = raw.replace(/^https?:\/\//i, '').replace(/[^A-Za-z0-9_-]/g, '').toUpperCase();
+      }
+
       if (code) {
         this.multiplayer.joinRoom(code);
-        this.joinStatusText.textContent = `Connecting to ${code}...`;
+        this.joinStatusText.textContent = `⏳ Connecting to Room ${code}...`;
+        this.joinStatusText.className = 'status-message connecting';
+        this.showToast(`Connecting to Room ${code}...`, '🌐');
+      } else {
+        this.joinStatusText.textContent = '⚠️ Invalid link or room code format.';
+        this.joinStatusText.className = 'status-message error';
       }
     });
 
@@ -2081,6 +2173,64 @@ class GameArena {
     });
   }
 
+  showToast(message, icon = '📋') {
+    if (!this.toastNotification) return;
+    if (this.toastMessage) this.toastMessage.textContent = message;
+    if (this.toastIcon) this.toastIcon.textContent = icon;
+    this.toastNotification.classList.remove('hidden');
+    if (this.toastTimer) clearTimeout(this.toastTimer);
+    this.toastTimer = setTimeout(() => {
+      this.toastNotification.classList.add('hidden');
+    }, 2800);
+  }
+
+  copyToClipboard(text, btnElement, successMsg = 'Link Copied!') {
+    const originalText = btnElement ? btnElement.textContent : '';
+    const onSuccess = () => {
+      if (btnElement) {
+        btnElement.textContent = '✅ COPIED!';
+        setTimeout(() => { btnElement.textContent = originalText; }, 2000);
+      }
+      this.showToast(successMsg, '✅');
+      (this.sounds || this.sound)?.playTone?.(880, 0.08, 'sine');
+    };
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(onSuccess).catch(() => {
+        this.fallbackCopy(text, onSuccess);
+      });
+    } else {
+      this.fallbackCopy(text, onSuccess);
+    }
+  }
+
+  fallbackCopy(text, cb) {
+    const tempInput = document.createElement('input');
+    tempInput.value = text;
+    document.body.appendChild(tempInput);
+    tempInput.select();
+    try {
+      document.execCommand('copy');
+      if (cb) cb();
+    } catch (e) {
+      this.showToast('Please manually select and copy the link.', '⚠️');
+    }
+    document.body.removeChild(tempInput);
+  }
+
+  openInviteModalAndGenerate() {
+    this.setPlayMode('online');
+    this.multiplayerModal.classList.remove('hidden');
+    this.tabHostRoom.classList.add('active');
+    this.tabJoinRoom.classList.remove('active');
+    this.hostSection.classList.remove('hidden');
+    this.joinSection.classList.add('hidden');
+
+    this.targetWins = parseInt(this.targetWinsSelect?.value || '5');
+    this.multiplayer.createRoom(this.currentGame, this.targetWins, false);
+    this.showToast('🔗 Invite Link Ready! Send to Player 2 to join.', '🔗');
+  }
+
   setPlayMode(mode) {
     this.playMode = mode;
     if (this.handsModel) {
@@ -2115,10 +2265,7 @@ class GameArena {
       this.speedoP2.classList.remove('hidden');
       const params = new URLSearchParams(window.location.search);
       if (!params.get('room') && this.multiplayer.role !== 'p2') {
-        this.multiplayerModal.classList.remove('hidden');
-        if (!this.multiplayer.roomId) {
-          this.multiplayer.createRoom(this.currentGame, this.targetWins);
-        }
+        this.openInviteModalAndGenerate();
       }
     }
   }
@@ -2367,6 +2514,10 @@ class GameArena {
       await camera.start();
     } catch (err) {
       console.warn('Camera initialization error:', err);
+      this.trackingText.textContent = 'MOUSE / TOUCH MODE';
+      this.trackingBadge.className = 'tracking-badge warning';
+      if (this.inputModeSelect) this.inputModeSelect.value = 'mouse';
+      this.showToast('Camera blocked on HTTP. Switched to Mouse / Touch blade mode!', 'ℹ️');
     }
   }
 
@@ -2388,13 +2539,28 @@ class GameArena {
       this.multiplayer.role = 'p1';
       this.multiplayer.roomId = msg.roomId;
       this.roomShareInfo.classList.remove('hidden');
-      this.displayRoomCode.textContent = msg.roomId;
-      this.shareUrlInput.value = msg.joinUrl;
-      const testLink = document.getElementById('btnTestNewWindow');
-      if (testLink) testLink.href = `/?room=${msg.roomId}`;
+      if (this.displayRoomCode) this.displayRoomCode.textContent = msg.roomId;
+
+      const lanIp = msg.localIp || this.multiplayer.serverLanIp || '172.17.102.226';
+      const lanUrl = `http://${lanIp}:3000/?room=${msg.roomId}`;
+      const localUrl = `http://localhost:3000/?room=${msg.roomId}`;
+
+      if (this.shareLanInput) this.shareLanInput.value = lanUrl;
+      if (this.shareLocalInput) this.shareLocalInput.value = localUrl;
+      if (this.shareUrlInput) this.shareUrlInput.value = lanUrl;
+
+      if (this.btnTestNewWindow) this.btnTestNewWindow.href = localUrl;
+
+      if (this.roomQrImage) {
+        this.roomQrImage.src = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(lanUrl)}`;
+        this.roomQrImage.onload = () => {
+          if (this.qrLoadingPlaceholder) this.qrLoadingPlaceholder.style.display = 'none';
+        };
+      }
+
       this.roomBadge.classList.remove('hidden');
       this.roomBadgeText.textContent = `ROOM: ${msg.roomId} (HOST)`;
-      this.guestWaitStatus.textContent = 'Guest: Waiting for connection...';
+      this.guestWaitStatus.textContent = 'Guest: Waiting for connection... ⏳';
       this.guestWaitStatus.className = 'status-item waiting';
     } else if (msg.type === 'room-joined') {
       this.playMode = 'online';

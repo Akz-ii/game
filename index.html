@@ -52,6 +52,10 @@
             <button id="tabDualLocal" class="mode-tab" data-mode="local">👥 1 Device (2 Hands)</button>
             <button id="tabDualOnline" class="mode-tab" data-mode="online">🌐 2 Laptops (Link)</button>
           </div>
+
+          <button id="btnHeaderInviteLink" class="invite-header-btn glow-pulse" title="Generate invite link for 2nd player to join duel">
+            🔗 Generate Invite Link
+          </button>
         </div>
 
         <!-- Center: Tracking Status & Room Badge -->
@@ -172,29 +176,76 @@
 
           <!-- Host View -->
           <div id="hostSection" class="multi-section">
-            <p class="section-desc">Share this link with another laptop on your Wi-Fi, or test it now in a split window:</p>
+            <div class="generate-hero-box">
+              <button id="btnGenerateNewLink" class="primary-btn glow-btn btn-hero">
+                ⚡ GENERATE NEW INVITE LINK
+              </button>
+              <div class="room-pill-row">
+                <span class="room-code-tag">ACTIVE ROOM: <strong id="displayRoomCode">GEN-1</strong></span>
+                <button id="btnCreateRoom" class="refresh-code-btn" title="Generate fresh room code">🔄 Refresh Code</button>
+              </div>
+            </div>
 
-            <div id="roomShareInfo" class="room-share-info">
-              <div class="room-code-display">
-                <div>
-                  <span class="label">ROOM CODE</span>
-                  <div id="displayRoomCode" class="big-code">GEN-1</div>
+            <div id="roomShareInfo" class="link-cards-grid">
+              <!-- Card 1: 2nd Laptop / Phone on Wi-Fi -->
+              <div class="link-card glass">
+                <div class="link-card-head">
+                  <div class="card-title-group">
+                    <span class="card-icon">🌐</span>
+                    <strong>2nd Laptop / Phone (Wi-Fi Link)</strong>
+                  </div>
+                  <span class="pill-badge pill-cyan">FOR 2ND DEVICE</span>
                 </div>
-                <button id="btnCreateRoom" class="secondary-btn" style="width: auto; padding: 6px 12px;" title="Generate a fresh code">🔄 NEW CODE</button>
+                <p class="link-card-help">Send this link to Player 2 on their laptop or mobile phone (same Wi-Fi):</p>
+                <div class="copy-link-box">
+                  <input type="text" id="shareLanInput" class="copy-input" readonly placeholder="Generating Wi-Fi link...">
+                  <!-- Hidden legacy input to prevent any null-reference -->
+                  <input type="hidden" id="shareUrlInput">
+                  <button id="btnCopyLanLink" class="copy-btn glow-cyan">📋 COPY WI-FI LINK</button>
+                  <button id="btnCopyLink" class="copy-btn" style="display:none;">📋 COPY</button>
+                </div>
               </div>
 
-              <div class="copy-link-box">
-                <input type="text" id="shareUrlInput" class="copy-input" readonly placeholder="Generating duel link...">
-                <button id="btnCopyLink" class="copy-btn">📋 COPY LINK</button>
+              <!-- Card 2: Split Screen / Test on Same Laptop -->
+              <div class="link-card glass">
+                <div class="link-card-head">
+                  <div class="card-title-group">
+                    <span class="card-icon">💻</span>
+                    <strong>Test on This Laptop (2nd Window)</strong>
+                  </div>
+                  <span class="pill-badge pill-purple">SPLIT SCREEN</span>
+                </div>
+                <p class="link-card-help">Test dual mode right now side-by-side on this same machine:</p>
+                <div class="copy-link-box">
+                  <input type="text" id="shareLocalInput" class="copy-input" readonly placeholder="Generating local link...">
+                  <button id="btnCopyLocalLink" class="copy-btn">📋 COPY LOCAL</button>
+                </div>
+                <div class="test-launcher-row">
+                  <a id="btnTestNewWindow" href="#" target="_blank" class="secondary-btn launch-btn">
+                    🚀 OPEN 2ND PLAYER WINDOW (TEST NOW)
+                  </a>
+                </div>
               </div>
 
-              <div class="room-actions-bar">
-                <a id="btnTestNewWindow" href="#" target="_blank" class="secondary-btn">🚀 OPEN GUEST IN NEW TAB (TEST NOW)</a>
+              <!-- Card 3: QR Code for Mobile / Laptop Camera -->
+              <div class="qr-card glass">
+                <div class="qr-wrapper">
+                  <img id="roomQrImage" src="" alt="Scan QR Code to Join" class="qr-image" />
+                  <div id="qrLoadingPlaceholder" class="qr-placeholder">Generating QR...</div>
+                </div>
+                <div class="qr-details">
+                  <h4 class="qr-heading">📱 Scan Camera to Join Instantly</h4>
+                  <p class="qr-sub">Point phone or second laptop camera at this QR code to join as Player 2 instantly!</p>
+                  <div class="network-info-line">
+                    <span>📶 Note: Both laptops must be on the same Wi-Fi or mobile hotspot.</span>
+                  </div>
+                </div>
               </div>
 
+              <!-- Player Ready Status -->
               <div class="host-player-status">
-                <div class="status-item ready">Host: Ready (You)</div>
-                <div id="guestWaitStatus" class="status-item waiting">Guest: Waiting for connection...</div>
+                <div class="status-item ready">Host: Ready (You) 🟢</div>
+                <div id="guestWaitStatus" class="status-item waiting">Guest: Waiting for connection... ⏳</div>
               </div>
 
               <div class="match-settings-row">
@@ -207,22 +258,15 @@
                 </label>
               </div>
 
-              <div class="device-tips-card">
-                <b>💡 How to Connect 2nd Laptop:</b><br>
-                1. Make sure both laptops are on the same Wi-Fi / Hotspot.<br>
-                2. On the 2nd laptop, open Chrome and paste the link above.<br>
-                3. Or open <code>http://172.17.102.226:3000</code> and enter the Room Code!
-              </div>
-
               <button id="btnStartOnlineMatch" class="primary-btn glow-btn disabled" disabled>START DUEL</button>
             </div>
           </div>
 
           <!-- Join View -->
           <div id="joinSection" class="multi-section hidden">
-            <p class="section-desc">Enter the Room Code or paste the Invite Link from your friend's laptop:</p>
+            <p class="section-desc">Paste the invite link or enter the Room Code from the host laptop:</p>
             <div class="join-input-group">
-              <input type="text" id="joinRoomCodeInput" class="form-input" placeholder="e.g. 9HM4E" maxlength="16">
+              <input type="text" id="joinRoomCodeInput" class="form-input" placeholder="e.g. http://172.17.102.226:3000/?room=9HM4E or 9HM4E">
               <button id="btnJoinRoomSubmit" class="primary-btn">JOIN DUEL</button>
             </div>
             <div id="joinStatusText" class="status-message"></div>
@@ -333,6 +377,10 @@
       </div>
     </div>
 
+  <!-- Instant Notification Toast -->
+  <div id="toastNotification" class="toast-popup hidden">
+    <span id="toastIcon">📋</span>
+    <span id="toastMessage">Invite link copied to clipboard!</span>
   </div>
 
   <script type="module" src="main.js"></script>
